@@ -5,6 +5,7 @@ A live Sun and Moon dial on a 26-letter wheel.
 - **Sun letter:** the Sun's compass bearing (azimuth) at your chosen location.
 - **Moon letter:** the Moon's phase angle. New Moon sits at 180° and Full Moon at 0°.
 - **Midpoint:** a green diamond on the degree ring, halfway between the Sun and the Moon along the shorter way around.
+- **Sky Tones:** soft ambient music made from the dial. The Sun's letter sets the key and the low drone, the Moon's letter sets where the bell chimes play, and the midpoint adds a middle tone. Press "Play sky tones" to start it, since browsers need a click before a page can play sound.
 - **Find a Time:** finds when the Sun or Moon will reach a chosen letter or degree, with a "Show on dial" button for each result.
 
 ## Running it

@@ -105,6 +105,10 @@ h2{font-family:var(--display);font-weight:400;font-size:20px;letter-spacing:.04e
 .res li button{align-self:flex-start;margin-top:5px;font-size:12px;padding:4px 12px}
 .viewing{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;font-size:13.5px;color:var(--ink);background:color-mix(in srgb,var(--glowc) 35%,var(--panel));border:1px solid var(--sun);border-radius:12px;padding:8px 12px;box-shadow:0 0 18px color-mix(in srgb,var(--glowc) 45%,transparent)}
 .viewing b{font-family:var(--mono);font-weight:500}
+.tones{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;font-size:13px;color:var(--muted);background:color-mix(in srgb,var(--panel) 55%,transparent);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);border:1px solid var(--line);border-radius:12px;padding:8px 12px}
+#toneInfo{flex:1;min-width:160px;font-family:var(--mono);font-size:12.5px}
+.tones .vol{flex-direction:row;align-items:center;gap:8px;font-size:12px}
+.tones input[type=range]{width:110px;padding:0;border:0;background:transparent;accent-color:var(--leaf)}
 .empty{color:var(--muted);font-size:13.5px;border:1px dashed var(--line);border-radius:14px;padding:14px 16px}
 @media (prefers-reduced-motion:no-preference){.marker{transition:transform .9s ease}}
 </style>
@@ -148,6 +152,8 @@ chain("gNear",[40,170,850],[[18,-50],[26,-10],[14,-80]],1);chain("gNear",[44,128
     <div class="clock" id="clock"></div>
   </header>
   <div class="viewing" id="viewBar" hidden><span>Showing the sky at <b id="viewTime"></b></span><button type="button" id="liveBtn" class="primary">Back to live</button></div>
+
+  <div class="tones"><button type="button" id="toneBtn" aria-pressed="false">▶ Play sky tones</button><span id="toneInfo"></span><label class="vol">Volume<input type="range" id="toneVol" min="0" max="100" value="50"></label></div>
 
   <svg class="dial" id="dial" viewBox="-24 -24 368 368" role="img" aria-label="The 26-letter wheel with the Sun and Moon positions"></svg>
 
@@ -499,7 +505,7 @@ const moonM=marker("moonm","var(--moon)",g=>{mk("circle",{cx:160,cy:56,r:8.5,fil
 const midM=mk("g",{class:"marker midm",style:"transform-origin:160px 160px"});
 const midTip=mk("title",{},midM);
 mk("path",{d:"M160 -0.5 L164.5 6.5 L160 13.5 L155.5 6.5 Z",fill:"var(--leaf)",stroke:"var(--panel)","stroke-width":1,filter:"drop-shadow(0 0 3px var(--glowc))"},midM);
-let lastSun=null,lastMoon=null,lastMid=null,viewAt=null;
+let lastSun=null,lastMoon=null,lastMid=null,viewAt=null,skyNow={s:0,m:0,mid:0};
 function rot(g,deg,last){let d=deg;if(last!==null){let diff=norm(deg-norm(last));if(diff>180)diff-=360;d=last+diff}g.style.transform=`rotate(${d}deg)`;return d}
 
 function compute(){
@@ -525,6 +531,7 @@ function compute(){
   $("midS").textContent=`Halfway between Sun and Moon · ${Math.abs(gap).toFixed(1)}° apart`;
   $("midE").textContent=edgeNote(midDeg);
   lastMid=rot(midM,midDeg,lastMid);
+  skyNow={s:LET.indexOf(sL),m:LET.indexOf(mL),mid:Math.floor(midDeg/W)%26};
   $("clock").textContent=(viewAt?"Viewing ":"")+now.toLocaleString([], {weekday:"short",month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});
 }
 function showLoc(){$("placeName").textContent=loc.place+(loc.isDefault?" (default)":"");$("coords").textContent=`${(+loc.lat).toFixed(2)}, ${(+loc.lon).toFixed(2)}`}
@@ -602,6 +609,60 @@ function showAt(t){viewAt=t;$("viewBar").hidden=!t;if(t)$("viewTime").textConten
 $("fOut").onclick=e=>{const b=e.target.closest("[data-at]");if(!b)return;showAt(new Date(+b.dataset.at));
   $("viewBar").scrollIntoView({behavior:"smooth",block:"start"})};
 $("liveBtn").onclick=()=>showAt(null);
+// ---- Sky Tones: soft ambient music that follows the dial ----
+// Sun letter sets the key and the low drone; Moon letter sets where the chimes wander; the midpoint adds a middle tone.
+(function(){
+const NAMES=["C","C♯","D","D♯","E","F","F♯","G","G♯","A","A♯","B"],PENT=[0,2,4,7,9],C2=65.406;
+const semiOf=i=>Math.round(i*12/26)%12;
+let ctx=null,master,dry,wet,drone=[],pad,on=false,timer=null,next=0,key="",vol=.5;
+try{const v=parseFloat(localStorage.getItem("ce-tones-vol"));if(v>=0&&v<=1)vol=v}catch(_){}
+$("toneVol").value=Math.round(vol*100);
+function impulse(sec){const n=Math.floor(ctx.sampleRate*sec),b=ctx.createBuffer(2,n,ctx.sampleRate);
+  for(let c=0;c<2;c++){const d=b.getChannelData(c);for(let i=0;i<n;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/n,2.6)}return b}
+function build(){
+  ctx=new (window.AudioContext||window.webkitAudioContext)();
+  master=ctx.createGain();master.gain.value=0;master.connect(ctx.destination);
+  const rev=ctx.createConvolver();rev.buffer=impulse(5);rev.connect(master);
+  wet=ctx.createGain();wet.gain.value=.6;wet.connect(rev);
+  dry=ctx.createGain();dry.gain.value=.65;dry.connect(master);
+  const lp=ctx.createBiquadFilter();lp.type="lowpass";lp.frequency.value=650;lp.Q.value=.3;lp.connect(dry);lp.connect(wet);
+  const breath=ctx.createGain();breath.gain.value=.75;breath.connect(lp);
+  const lfo=ctx.createOscillator(),lfoG=ctx.createGain();lfo.frequency.value=.05;lfoG.gain.value=.22;lfo.connect(lfoG);lfoG.connect(breath.gain);lfo.start();
+  [[1,"sine",.17],[1.5,"sine",.08],[.5,"triangle",.07],[1.004,"sine",.06]].forEach(([mul,type,g])=>{
+    const o=ctx.createOscillator(),gn=ctx.createGain();o.type=type;o.frequency.value=C2*mul;gn.gain.value=g;o.connect(gn);gn.connect(breath);o.start();drone.push({o,mul})});
+  pad={o:ctx.createOscillator(),g:ctx.createGain()};pad.o.type="triangle";pad.g.gain.value=.04;pad.o.connect(pad.g);pad.g.connect(lp);pad.o.start();
+}
+const rootHz=()=>C2*Math.pow(2,semiOf(skyNow.s)/12);
+function retune(glide){const t=ctx.currentTime,r=rootHz(),tc=glide?2.5:.01;
+  drone.forEach(d=>d.o.frequency.setTargetAtTime(r*d.mul,t,tc));
+  pad.o.frequency.setTargetAtTime(r*2*Math.pow(2,PENT[(skyNow.mid%4)+1]/12),t,tc*1.5)}
+function bell(t,f,amp){[[1,1],[2.76,.18],[5.4,.05]].forEach(([p,a])=>{
+  const o=ctx.createOscillator(),g=ctx.createGain();o.frequency.value=f*p;g.gain.setValueAtTime(0,t);
+  g.gain.linearRampToValueAtTime(amp*a,t+.03);g.gain.exponentialRampToValueAtTime(.0001,t+(p===1?6:2.5));
+  o.connect(g);g.connect(dry);g.connect(wet);o.start(t);o.stop(t+6.2)})}
+function chime(t){const base=rootHz()*2,center=Math.round(skyNow.m*9/25);
+  const pick=()=>{const d=Math.max(0,Math.min(12,center+Math.floor(Math.random()*5)-2));return base*Math.pow(2,(Math.floor(d/5)*12+PENT[d%5])/12)};
+  bell(t,pick(),.07);if(Math.random()<.25)bell(t+.4+Math.random()*.4,pick(),.05)}
+function info(){$("toneInfo").textContent=`Key of ${NAMES[semiOf(skyNow.s)]} · Sun ${LET[skyNow.s]} · Moon ${LET[skyNow.m]} · ◆ ${LET[skyNow.mid]}`}
+function tick(){if(!on)return;const k=`${skyNow.s}-${skyNow.mid}`;if(k!==key){key=k;retune(true)}info();
+  while(next<ctx.currentTime+2){if(next<ctx.currentTime)next=ctx.currentTime+.1;chime(next);next+=2.5+Math.random()*4.5}}
+function start(){if(!ctx){build();retune(false);key=`${skyNow.s}-${skyNow.mid}`}
+  ctx.resume();on=true;next=ctx.currentTime+1.5;master.gain.cancelScheduledValues(ctx.currentTime);
+  master.gain.setTargetAtTime(vol,ctx.currentTime,1.5);clearInterval(timer);timer=setInterval(tick,1000);tick();
+  $("toneBtn").textContent="❚❚ Pause tones";$("toneBtn").setAttribute("aria-pressed","true");
+  try{localStorage.setItem("ce-tones","on")}catch(_){}}
+function stop(){on=false;clearInterval(timer);if(ctx){master.gain.setTargetAtTime(0,ctx.currentTime,.6);setTimeout(()=>{if(!on)ctx.suspend()},3000)}
+  $("toneBtn").textContent="▶ Play sky tones";$("toneBtn").setAttribute("aria-pressed","false");
+  try{localStorage.setItem("ce-tones","off")}catch(_){}}
+$("toneBtn").onclick=()=>on?stop():start();
+$("toneVol").oninput=e=>{vol=e.target.value/100;try{localStorage.setItem("ce-tones-vol",vol)}catch(_){}
+  if(on&&ctx)master.gain.setTargetAtTime(vol,ctx.currentTime,.2)};
+info();addEventListener("DOMContentLoaded",()=>setTimeout(info,0));setInterval(()=>{if(!on)info()},5000);
+// If tones were playing last visit, start them with the first tap or key press (browsers need one).
+try{if(localStorage.getItem("ce-tones")==="on"){const go=e=>{if(e.target.closest&&e.target.closest("#toneBtn"))return;if(!on)start();
+  removeEventListener("pointerdown",go);removeEventListener("keydown",go)};addEventListener("pointerdown",go);addEventListener("keydown",go)}}catch(_){}
+})();
+
 
 
 // Builder's notes (shared, editors write)
